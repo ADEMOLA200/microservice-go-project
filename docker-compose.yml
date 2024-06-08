@@ -19,16 +19,21 @@ services:
     networks:
       - default
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     ports:
       - 3000:3000
     environment:
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
-      - DB_HOST=host.docker.internal
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - DB_HOST=postgres-db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=blog-db
+    volumes:
+      - auth-service-data:/var/lib/auth-service
   user-service:
     build:
       context: .
@@ -45,16 +50,21 @@ services:
     networks:
       - default
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     ports:
       - 3003:3003
     environment:
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
-      - DB_HOST=host.docker.internal
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - DB_HOST=postgres-db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=blog-db
+    volumes:
+      - user-service-data:/var/lib/user-service
   post-service:
     build:
       context: .
@@ -71,16 +81,21 @@ services:
     networks:
       - default
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     ports:
       - 3004:3004
     environment:
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
-      - DB_HOST=host.docker.internal
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - DB_HOST=postgres-db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=blog-db
+    volumes:
+      - post-service-data:/var/lib/post-service
   gateway-service:
     build:
       context: .
@@ -99,7 +114,14 @@ services:
     ports:
       - 3002:3002
     environment:
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - gateway-service-data:/var/lib/gateway-service
   data-retriever-service:
     build:
       context: .
@@ -107,15 +129,20 @@ services:
     networks:
       - default
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     ports:
       - 3005:3005
     environment:
-      - DB_HOST=host.docker.internal
+      - DB_HOST=postgres-db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=blog-db
+    volumes:
+      - data-retriever-service-data:/var/lib/data-retriever-service
   logger-service:
     build:
       context: .
@@ -126,10 +153,15 @@ services:
       mongo-db:
         condition: service_healthy
     environment:
-      - MONGO_URI=mongodb://username:password@mongo-db:27017/blog-db?ssl=false&authSource=admin
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
+      - MONGO_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo-db:27017/blog-db?ssl=false&authSource=admin
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - logger-service-data:/var/lib/logger-service
   notification-service:
     build:
       context: .
@@ -140,9 +172,14 @@ services:
       logger-service:
         condition: service_healthy
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "curl", "-f", "http://localhost:3007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     environment:
-      - RABBITMQ_SERVER_URL=amqp://username:password@rabbitmq:5672/
+      - RABBITMQ_SERVER_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - notification-service-data:/var/lib/notification-service
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: 'rabbitmq'
@@ -150,35 +187,57 @@ services:
       - 5672:5672
       - 15672:15672
     environment:
-      - RABBITMQ_DEFAULT_USER=username
-      - RABBITMQ_DEFAULT_PASS=password
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
     volumes:
       - ~/.docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
       - ~/.docker-conf/rabbitmq/log/:/var/log/rabbitmq
     networks:
       - default
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "rabbitmqctl", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
   postgres-db:
     image: postgres:latest
     container_name: 'postgres-db'
     ports:
-      - 5432
+      - 5432:5432
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=blog-db
     networks:
       - default
     volumes:
-      - ~/.docker-conf/postgres-db/data/:/var/lib/postgresql/data/ # persist data even if container shuts down
+      - ~/.docker-conf/postgres-db/data/:/var/lib/postgresql/data/
     healthcheck:
-      test: "exit 0"
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
   mongo-db:
     image: mongo:latest
     container_name: 'mongo-db'
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=username
-      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - ~/.docker-conf/mongo-db/data/:/data/db
     healthcheck:
-      test: "exit 0"
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+
+volumes:
+  auth-service-data:
+  user-service-data:
+  post-service-data:
+  gateway-service-data:
+  data-retriever-service-data:
+  logger-service-data:
+  notification-service-data:
